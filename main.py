@@ -1,9 +1,8 @@
 import streamlit as st
 import pandas as pd
-import os
+from streamlit_gsheets import GSheetsConnection
 
 # --- КОНФИГУРАЦИЯ ---
-FILE_NAME_PRICE = "prices_database.xlsx"
 DEFAULT_FF_COST = 400
 
 SHOPS = [
@@ -17,29 +16,32 @@ SHOPS_WITHOUT_FF = ["Диханбаев", "Хаким", "Diamond"]
 
 st.set_page_config(page_title="Калькулятор Поставок", layout="centered", page_icon="📦")
 
+# --- ПОДКЛЮЧЕНИЕ К GOOGLE SHEETS ---
+# Создаем подключение один раз
+conn = st.connection("gsheets", type=GSheetsConnection)
+
 st.title("📦 Система расчета себестоимости")
 st.markdown("---")
 
+# 1. Выбор магазина
 selected_shop = st.selectbox("🎯 Выберите магазин для расчета:", SHOPS)
 
 # Определяем ставку FF
 current_ff_rate = 0 if selected_shop in SHOPS_WITHOUT_FF else DEFAULT_FF_COST
 
-if not os.path.exists(FILE_NAME_PRICE):
-    st.error(f"❌ Файл '{FILE_NAME_PRICE}' не найден!")
-    st.stop()
 
-
-@st.cache_data
-def load_shop_price(shop_name):
+# Функция загрузки данных из Google Sheets
+@st.cache_data(ttl=600)  # Кэш на 10 минут, чтобы не дергать API постоянно
+def load_data(sheet_name):
     try:
-        return pd.read_excel(FILE_NAME_PRICE, sheet_name=shop_name)
-    except Exception:
-        st.error(f"❌ Лист '{shop_name}' не найден в Excel!")
+        # Читаем конкретный лист из таблицы, указанной в Secrets
+        return conn.read(worksheet=sheet_name)
+    except Exception as e:
+        st.error(f"❌ Ошибка загрузки листа '{sheet_name}': {e}")
         return None
 
 
-df_prices = load_shop_price(selected_shop)
+df_prices = load_data(selected_shop)
 
 if df_prices is not None:
     st.subheader(f"Загрузите поставку: {selected_shop}")
@@ -47,15 +49,20 @@ if df_prices is not None:
 
     if delivery_file:
         try:
+            # Читаем поставку
             df_raw = pd.read_excel(delivery_file, skiprows=4, usecols="F", names=['Артикул']).dropna()
 
             if not df_raw.empty:
                 summary = df_raw['Артикул'].value_counts().reset_index()
                 summary.columns = ['Артикул', 'Заказ (уп)']
 
+                # Очистка артикулов от пробелов для точного совпадения
+                summary['Артикул'] = summary['Артикул'].astype(str).str.strip()
+                df_prices['Артикул'] = df_prices['Артикул'].astype(str).str.strip()
+
                 # Сопоставление
-                res = pd.merge(summary, df_prices[['Артикул', 'Количество в упаковке', 'Цена за штуку']], on='Артикул',
-                               how='left')
+                res = pd.merge(summary, df_prices[['Артикул', 'Количество в упаковке', 'Цена за штуку']],
+                               on='Артикул', how='left')
 
                 # Расчеты
                 res['Всего шт'] = res['Заказ (уп)'] * res['Количество в упаковке']
@@ -64,30 +71,26 @@ if df_prices is not None:
                 st.subheader("📊 Результаты расчета")
 
 
-                # Улучшенная функция "Зебра": задаем и фон, и цвет текста
+                # Функция "Зебра" с адаптацией под темы
                 def zebra_style(x):
-                    # Создаем пустой DataFrame для стилей
                     df_s = pd.DataFrame('', index=x.index, columns=x.columns)
-                    # Каждую вторую строку красим в светло-серый и ЗАДАЕМ ЧЕРНЫЙ ТЕКСТ
-                    # Это гарантирует видимость в темной теме
-                    df_s.iloc[1::2, :] = 'background-color: #EEEEEE; color: #31333F;'
+                    # Используем полупрозрачный серый, чтобы он адаптировался под фон темы
+                    df_s.iloc[1::2, :] = 'background-color: rgba(128, 128, 128, 0.1);'
                     return df_s
 
 
-                # Подготовка данных
                 final_display = res[['Артикул', 'Заказ (уп)', 'Всего шт', 'Цена товара']]
 
-                # Применяем стиль
+                # Стилизация
                 styled_df = final_display.style.apply(zebra_style, axis=None).format({
                     "Цена товара": "{:,.0f}",
                     "Всего шт": "{:,.0f}",
                     "Заказ (уп)": "{:,.0f}"
                 })
 
-                # Вывод таблицы
                 st.table(styled_df)
 
-                # --- ИТОГОВЫЙ БЛОК (ДВЕ КОЛОНКИ) ---
+                # --- ИТОГОВЫЙ БЛОК ---
                 total_packs = res['Заказ (уп)'].sum()
                 total_sum_items = res['Цена товара'].sum()
                 total_ff = total_packs * current_ff_rate
@@ -106,7 +109,7 @@ if df_prices is not None:
 
                 with col2:
                     st.success(f"### ИТОГО: {grand_total:,.0f} тг")
-                    st.caption(f"Прайс: {selected_shop} | FF: {current_ff_rate} тг/уп")
+                    st.caption(f"Данные из Google Sheets: {selected_shop}")
 
         except Exception as e:
-            st.error(f"🔴 Ошибка: {e}")
+            st.error(f"🔴 Ошибка обработки: {e}")

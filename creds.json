@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "eastern-verbena-447422-k2",
+  "private_key_id": "54b5290db3ac4d4a8e749539d8d684db10aafbc5",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQC85ooQzwZhKQuF\nDNAwPww+L55XAhxcC8jq45WT2Rts7nOV32In9aAS4OKG+L4atJpNC999BUpWaCtc\naF2RPdtAofxRrVtLsx+hH2ao3yKs1KIWAempYoM7x8h7MV0lHjqU2iDrSa3pF4PH\nJZW8NDHqn9mho8x8kCH3rqs50HnlSXJyCmoR85/myexZb87i8I6Z0Fjg2OTXPTP1\natOeZEmXCHYazSV9Q71qGzdwLnIDoC2Kd7BrTPs25H0QY0AQYYGEQQ4JPHeyw20f\nMe0gaZESz9F3Jh/iD0tvfFXkFTGJ/pEIo0w73qR0d/UzbdGj3NGL1YU67t3IR72N\nhKY6v8O5AgMBAAECggEAFPz57+RqsWqrr56k9olYyUOF8KWoxD7gdd2vwb+8fPnR\nAKDTYXx4asSPEr9KMwIoR0F3lUbcU7WrBK9JXyD77oZY+DO+Wi62p9Kq974kFoch\nE7gmb7Yk/eRElZB+aIh/aojCYdYbwzNkRkEaLhEwDyEv33ZpOtlSVthSyL+NvaB+\nd3cp/D/y1ZfgdpTXWihH16OVtE28iyYJxfLltvGZRFKuDvyiYAqQJnSfAxQvV0k1\n4mGR6fpDopn1dIdOTUbMFteFpkd8Gg3lwYpHs0pJsomIikABz2mnQCUJzlpybyfM\n6mnPdD5KgrI/JJOuDFvBER8pHufDzSVQxavL7o/KsQKBgQD0zKTdQ4HjVMP4dX3+\n+sE1vf5icBi2fyW2Jg2LIoo7Yii6pNbWhMB4SoantFINGyfH6uf+XPmol7EKjds8\nUQh3PmWdufTkqwqvJrL6aMryK6QJUQgjHN3LNjR+0ddrt0p+buQazamZf5KaK4I3\n65e4mC1+5fM0MC+W2Itt+7Fl8QKBgQDFiyW7p/i/6comD5cOhGi9q3W72vCousiJ\nNurt5guuU9BgkdkZDkSxUF5hnBAzaHdfFdOeA8opntC5eGa8WFj4WwJM+IDGSIU4\nxrd7GzhC9wBKOEPpLo9lIjP9yGy5PNan5V/wnMA2K131YFZrqs2Nm2ZgzCAVDfnb\niHC8lirSSQKBgQDhOvBtC9GT4ce08BUO5pOh6L8GvvBd6Lo/zt8jJpJcdMHYiBWK\npfWYN6mQ312m5VdCnyT4aX7i2T5w4XfXFQ9e9y/zYMarJZvc7xQ5RPWEvxZb5AxC\nkiqW77Z5AITdfHSzwz9oUdU7f57Y7jMPVFnx40HowZV0bOk8NtyCQtNDYQKBgQC3\nRWtSeHodgsdbHGemvk12epaWHH/d6ryWIO9Am4cGyxeuIGHsDwLIBqopoOKe7zKg\nct2L4jQy/Pbku8GEx+pzL+wogPzn+OwwSpx7iDtgVUxdj2nh8qJyz5Kwxrun97um\ntPWXg7YIC5/2QNSsuyBNWnlXIMo6/mZquGDvddpwkQKBgQCc+x2BUfqer5/n4pLG\nQRWdhdWcrD8Y2Gi5gZeF9O2SJ1zgMqdCG5igY92Tq1NCDgyv9BqeRe31U5pkNVCV\n+Uwv+xu6XtQ+nQPzdoK/Go3cXbCKu3GCFAk3h9sixR8/zfcFEgbguSDFKeR0M12Z\n43bNMqIzaQKEiZjc5EtJtXmhBA==\n-----END PRIVATE KEY-----\n",
+  "client_email": "streamlit-bot@eastern-verbena-447422-k2.iam.gserviceaccount.com",
+  "client_id": "115433600381166410367",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/streamlit-bot%40eastern-verbena-447422-k2.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}

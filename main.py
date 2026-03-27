@@ -62,8 +62,30 @@ if df_prices is not None:
                 res['Цена товара'] = res['Всего шт'] * res['Цена за штуку']
 
                 st.subheader("📊 Результаты расчета")
-                st.table(
-                    res[['Артикул', 'Заказ (уп)', 'Всего шт', 'Цена товара']].style.format({"Цена товара": "{:,.0f}"}))
+
+
+                # Улучшенная функция "Зебра": задаем и фон, и цвет текста
+                def zebra_style(x):
+                    # Создаем пустой DataFrame для стилей
+                    df_s = pd.DataFrame('', index=x.index, columns=x.columns)
+                    # Каждую вторую строку красим в светло-серый и ЗАДАЕМ ЧЕРНЫЙ ТЕКСТ
+                    # Это гарантирует видимость в темной теме
+                    df_s.iloc[1::2, :] = 'background-color: #EEEEEE; color: #31333F;'
+                    return df_s
+
+
+                # Подготовка данных
+                final_display = res[['Артикул', 'Заказ (уп)', 'Всего шт', 'Цена товара']]
+
+                # Применяем стиль
+                styled_df = final_display.style.apply(zebra_style, axis=None).format({
+                    "Цена товара": "{:,.0f}",
+                    "Всего шт": "{:,.0f}",
+                    "Заказ (уп)": "{:,.0f}"
+                })
+
+                # Вывод таблицы
+                st.table(styled_df)
 
                 # --- ИТОГОВЫЙ БЛОК (ДВЕ КОЛОНКИ) ---
                 total_packs = res['Заказ (уп)'].sum()

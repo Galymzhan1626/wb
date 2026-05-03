@@ -20,7 +20,7 @@ st.set_page_config(page_title="Калькулятор Поставок", layout=
 st.title("📦 Система расчёта себестоимости")
 st.markdown("---")
 
-# --- ЗАГРУЗКА ИЗ GOOGLE SHEETS ---
+# загрузка из гугл таблицы
 @st.cache_data(ttl=300)
 def load_prices_from_gsheets(shop_name):
     try:
@@ -49,9 +49,9 @@ with col_refresh:
         st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
 
-current_ff_rate = 0 if selected_shop in SHOPS_WITHOUT_FF else ff_rate_input
+current_ff_rate = 0 if selected_shop in SHOPS_WITHOUT_FF else DEFAULT_FF_COST
 
-# Загружаем прайс
+# загружаем прайс
 with st.spinner("Загружаем прайс..."):
     df_prices, error = load_prices_from_gsheets(selected_shop)
 
@@ -67,7 +67,7 @@ if df_prices.empty:
 last_updated = time.strftime("%H:%M:%S")
 st.caption(f"Прайс загружен в {last_updated} · {len(df_prices)} позиций · обновляется каждые 5 мин")
 
-# --- ЗАГРУЗКА ПОСТАВКИ ---
+# загрузки ежедневной погрузки
 st.subheader(f"Загрузите поставку: {selected_shop}")
 delivery_file = st.file_uploader("Excel (колонка F с 6-й строки)", type=["xlsx"])
 
@@ -92,7 +92,7 @@ if delivery_file:
             how="left"
         )
 
-        # --- АЛЕРТ: артикулы не найдены в прайсе ---
+        # алерт
         unmatched = res[res["Цена за штуку"].isna()]["Артикул"].tolist()
         if unmatched:
             st.warning(
@@ -110,7 +110,7 @@ if delivery_file:
         res["Всего шт"] = res["Заказ (уп)"] * res["Количество в упаковке"]
         res["Цена товара"] = res["Всего шт"] * res["Цена за штуку"]
 
-        # --- ТАБЛИЦА ---
+        # таблица
         st.subheader("📊 Результаты расчёта")
 
         final_display = res[["Артикул", "Заказ (уп)", "Всего шт", "Цена за штуку", "Цена товара"]]
@@ -147,7 +147,7 @@ if delivery_file:
             st.success(f"### ИТОГО: {grand_total:,.0f} тг")
             st.caption(f"Прайс: {selected_shop} | FF: {current_ff_rate} тг/уп")
 
-        # --- ЭКСПОРТ ---
+        # экспорт
         output = BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
             final_display.to_excel(writer, index=False, sheet_name="Результат")

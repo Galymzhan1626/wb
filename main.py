@@ -5,7 +5,6 @@ from google.oauth2.service_account import Credentials
 from io import BytesIO
 import time
 
-# --- КОНФИГУРАЦИЯ ---
 DEFAULT_FF_COST = 400
 
 SHOPS = [
@@ -20,21 +19,6 @@ SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
 st.set_page_config(page_title="Калькулятор Поставок", layout="centered", page_icon="📦")
 st.title("📦 Система расчёта себестоимости")
 st.markdown("---")
-
-# --- SIDEBAR: настройки ---
-with st.sidebar:
-    st.header("⚙️ Настройки")
-    ff_rate_input = st.number_input(
-        "Ставка фулфилмента (тг/уп)",
-        min_value=0,
-        max_value=5000,
-        value=DEFAULT_FF_COST,
-        step=50,
-        help="Можно изменить прямо здесь — без правки кода"
-    )
-    st.markdown("---")
-    st.caption("Данные загружаются из Google Sheets")
-
 
 # --- ЗАГРУЗКА ИЗ GOOGLE SHEETS ---
 @st.cache_data(ttl=300)
@@ -59,24 +43,22 @@ col_main, col_refresh = st.columns([4, 1])
 with col_main:
     selected_shop = st.selectbox("🎯 Выберите магазин:", SHOPS)
 with col_refresh:
-    st.write("")  # выравнивание
+    st.markdown("<div style='margin-top: 28px'>", unsafe_allow_html=True)
     if st.button("🔄", help="Обновить прайс из Google Sheets"):
         st.cache_data.clear()
         st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
 
 current_ff_rate = 0 if selected_shop in SHOPS_WITHOUT_FF else ff_rate_input
 
 # Загружаем прайс
 with st.spinner("Загружаем прайс..."):
-    df_all, error = load_prices_from_gsheets()
+    df_prices, error = load_prices_from_gsheets(selected_shop)
 
 if error:
     st.error(f"❌ Не удалось загрузить прайс: {error}")
     st.info("Проверьте доступ к Google Sheets и настройки секретов.")
     st.stop()
-
-# Фильтруем по магазину
-df_prices = df_all[df_all["Магазин"] == selected_shop].copy()
 
 if df_prices.empty:
     st.warning(f"⚠️ Для магазина '{selected_shop}' нет данных в прайсе.")

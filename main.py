@@ -1,26 +1,37 @@
 import streamlit as st
 import pandas as pd
 import gspread
+import requests
 from google.oauth2.service_account import Credentials
 from io import BytesIO
 import time
 
+# --- НАСТРОЙКИ ---
 DEFAULT_FF_COST = 400
-
 SHOPS = [
     "Тлеубаева", "Bonitas", "Мамутова", "Тастанов", "Bastau", "Шукурова",
     "Диханбаев", "Diamond", "Хаким", "Fariza", "Aibar", "Байпакова",
     "Абеденов", "Махамбетова", "Кыдырова", "Жораев",
 ]
 SHOPS_WITHOUT_FF = ["Диханбаев", "Хаким", "Diamond"]
-
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
 
+# --- PAGE CONFIG ---
 st.set_page_config(page_title="Калькулятор Поставок", layout="centered", page_icon="📦")
+
+# Кастомные стили для таблицы и алертов
+st.markdown("""
+    <style>
+    .stTable {font-size: 14px;}
+    .reportview-container .main .block-container {padding-top: 2rem;}
+    </style>
+    """, unsafe_allow_html=True)
+
 st.title("📦 Система расчёта себестоимости")
 st.markdown("---")
 
-# загрузка из гугл таблицы
+
+# --- GOOGLE SHEETS ---
 @st.cache_data(ttl=300)
 def load_prices_from_gsheets(shop_name):
     try:
@@ -30,15 +41,58 @@ def load_prices_from_gsheets(shop_name):
         )
         client = gspread.authorize(creds)
         spreadsheet = client.open_by_url(st.secrets["sheet_url"])
-        worksheet = spreadsheet.worksheet(shop_name)  # лист по имени магазина
-        df = pd.DataFrame(worksheet.get_all_records())
-        return df, None
-    except gspread.WorksheetNotFound:
-        return None, f"Лист '{shop_name}' не найден в таблице"
+        worksheet = spreadsheet.worksheet(shop_name)
+        return pd.DataFrame(worksheet.get_all_records()), None
     except Exception as e:
-        return None, str(e)
+        return None, f"Ошибка доступа: {str(e)}"
 
 
+# --- WILDBERRIES API ---
+@st.cache_data(ttl=60)
+def get_supply_orders(supply_id: str, api_key: str):
+    clean_id = supply_id.strip()
+    headers = {"Authorization": api_key}
+
+    # Сначала пробуем прямой метод
+    url_direct = f"https://marketplace-api.wildberries.ru/api/v3/supplies/{clean_id}/orders"
+
+    try:
+        res = requests.get(url_direct, headers=headers, timeout=15)
+
+        if res.status_code == 200:
+            orders = res.json().get("orders", [])
+            if orders:
+                df = pd.DataFrame(orders)
+                summary = df["article"].value_counts().reset_index()
+                summary.columns = ["Артикул", "Заказ (уп)"]
+                return summary, None
+
+        # ЕСЛИ 404 или пусто — включаем ПЛАН Б: ищем в общем списке заказов
+        url_all = "https://marketplace-api.wildberries.ru/api/v3/orders"
+        # Берем последние 1000 заказов (можно настроить дату)
+        params = {"limit": 1000, "next": 0}
+        res_all = requests.get(url_all, headers=headers, params=params)
+
+        if res_all.status_code == 200:
+            all_orders = res_all.json().get("orders", [])
+            # Фильтруем заказы, у которых supplyId совпадает с нашим
+            filtered = [o for o in all_orders if str(o.get("supplyId")) == clean_id]
+
+            if filtered:
+                df = pd.DataFrame(filtered)
+                summary = df["article"].value_counts().reset_index()
+                summary.columns = ["Артикул", "Заказ (уп)"]
+                return summary, None
+            else:
+                return None, f"Заказы для поставки {clean_id} не найдены ни в одном методе."
+
+        return None, f"Ошибка API: {res.status_code}"
+
+    except Exception as e:
+        return None, f"Ошибка: {str(e)}"
+
+
+# --- ИНТЕРФЕЙС ВЫБОРА МАГАЗИНА ---
 col_main, col_refresh = st.columns([4, 1])
 with col_main:
     selected_shop = st.selectbox("🎯 Выберите магазин:", SHOPS)
@@ -47,116 +101,103 @@ with col_refresh:
     if st.button("🔄", help="Обновить прайс из Google Sheets"):
         st.cache_data.clear()
         st.rerun()
-    st.markdown("</div>", unsafe_allow_html=True)
 
 current_ff_rate = 0 if selected_shop in SHOPS_WITHOUT_FF else DEFAULT_FF_COST
 
-# загружаем прайс
-with st.spinner("Загружаем прайс..."):
+# --- ЗАГРУЗКА ДАННЫХ ---
+with st.spinner("⏳ Синхронизация с Google Sheets..."):
     df_prices, error = load_prices_from_gsheets(selected_shop)
 
 if error:
-    st.error(f"❌ Не удалось загрузить прайс: {error}")
-    st.info("Проверьте доступ к Google Sheets и настройки секретов.")
+    st.error(f"❌ {error}")
     st.stop()
 
-if df_prices.empty:
-    st.warning(f"⚠️ Для магазина '{selected_shop}' нет данных в прайсе.")
-    st.stop()
+st.caption(f"✅ Прайс обновлен в {time.strftime('%H:%M')} | {len(df_prices)} SKU")
 
-last_updated = time.strftime("%H:%M:%S")
-st.caption(f"Прайс загружен в {last_updated} · {len(df_prices)} позиций · обновляется каждые 5 мин")
+# --- ВВОД ДАННЫХ ПОСТАВКИ ---
+st.subheader(f"🚚 Поставка: {selected_shop}")
+tab_api, tab_file = st.tabs(["🔗 Wildberries API", "📂 Загрузка Excel"])
 
-# загрузки ежедневной погрузки
-st.subheader(f"Загрузите поставку: {selected_shop}")
-delivery_file = st.file_uploader("Excel (колонка F с 6-й строки)", type=["xlsx"])
+summary = None
 
-if delivery_file:
-    try:
-        df_raw = (
-            pd.read_excel(delivery_file, skiprows=4, usecols="F", names=["Артикул"])
-            .dropna()
-        )
+with tab_api:
+    api_key = st.secrets.get("wb_api_keys", {}).get(selected_shop)
+    if not api_key:
+        st.info("⚠️ API ключ не найден. Используйте Excel или добавьте ключ в настройки.")
+    else:
+        c1, c2 = st.columns([3, 1], vertical_alignment = "bottom")
+        sid = c1.text_input("ID Поставки", placeholder="WB-GI-...")
+        if c2.button("Получить", use_container_width=True) and sid:
+            summary, api_err = get_supply_orders(sid.strip(), api_key)
+            if api_err: st.error(api_err)
 
-        if df_raw.empty:
-            st.warning("Файл пустой или данные не найдены в колонке F.")
-            st.stop()
+with tab_file:
+    delivery_file = st.file_uploader("Файл поставки (колонка F)", type=["xlsx"])
+    if delivery_file:
+        try:
+            df_raw = pd.read_excel(delivery_file, skiprows=4, usecols="F").dropna()
+            df_raw.columns = ["Артикул"]
+            summary = df_raw["Артикул"].value_counts().reset_index()
+            summary.columns = ["Артикул", "Заказ (уп)"]
+        except Exception as e:
+            st.error(f"❌ Ошибка файла: {e}")
 
-        summary = df_raw["Артикул"].value_counts().reset_index()
-        summary.columns = ["Артикул", "Заказ (уп)"]
+# --- РАСЧЕТЫ ---
+if summary is not None:
+    # Объединение с прайсом
+    res = pd.merge(summary, df_prices[["Артикул", "Количество в упаковке", "Цена за штуку"]], on="Артикул", how="left")
 
-        res = pd.merge(
-            summary,
-            df_prices[["Артикул", "Количество в упаковке", "Цена за штуку"]],
-            on="Артикул",
-            how="left"
-        )
+    # Обработка ошибок (артикулы не в прайсе)
+    unmatched = res[res["Цена за штуку"].isna()]["Артикул"].tolist()
+    if unmatched:
+        st.warning(f"⚠️ **{len(unmatched)} SKU** не найдены в прайсе и пропущены:\n{', '.join(map(str, unmatched))}")
 
-        # алерт
-        unmatched = res[res["Цена за штуку"].isna()]["Артикул"].tolist()
-        if unmatched:
-            st.warning(
-                f"⚠️ {len(unmatched)} артикул(ов) не найдено в прайсе и исключены из расчёта:\n"
-                + ", ".join(str(a) for a in unmatched)
-            )
+    res = res.dropna(subset=["Цена за штуку"])
 
-        # Исключаем строки с NaN перед расчётом
-        res = res.dropna(subset=["Цена за штуку"])
-
-        if res.empty:
-            st.error("Ни один артикул не совпал с прайсом. Проверьте файл поставки.")
-            st.stop()
-
+    if not res.empty:
+        # Математика
         res["Всего шт"] = res["Заказ (уп)"] * res["Количество в упаковке"]
         res["Цена товара"] = res["Всего шт"] * res["Цена за штуку"]
 
-        # таблица
         st.subheader("📊 Результаты расчёта")
 
-        final_display = res[["Артикул", "Заказ (уп)", "Всего шт", "Цена за штуку", "Цена товара"]]
-
-        def zebra_style(x):
-            df_s = pd.DataFrame("", index=x.index, columns=x.columns)
-            df_s.iloc[1::2, :] = "background-color: #EEEEEE; color: #31333F;"
-            return df_s
-
-        styled_df = final_display.style.apply(zebra_style, axis=None).format({
-            "Цена товара": "{:,.0f}",
-            "Цена за штуку": "{:,.0f}",
-            "Всего шт": "{:,.0f}",
-            "Заказ (уп)": "{:,.0f}",
-        })
-        st.table(styled_df)
-
-        # --- ИТОГИ ---
-        total_packs = res["Заказ (уп)"].sum()
-        total_sum_items = res["Цена товара"].sum()
-        total_ff = total_packs * current_ff_rate
-        grand_total = total_sum_items + total_ff
-
-        st.markdown("---")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.write(f"**Количество заказов:** {total_packs} шт")
-            if current_ff_rate == 0:
-                st.write("**Фулфилмент (FF):** 0 тг (исключение)")
-            else:
-                st.write(f"**Фулфилмент (FF):** {total_ff:,.0f} тг")
-            st.write(f"**Сумма за товар:** {total_sum_items:,.0f} тг")
-        with col2:
-            st.success(f"### ИТОГО: {grand_total:,.0f} тг")
-            st.caption(f"Прайс: {selected_shop} | FF: {current_ff_rate} тг/уп")
-
-        # экспорт
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine="openpyxl") as writer:
-            final_display.to_excel(writer, index=False, sheet_name="Результат")
-        st.download_button(
-            label="⬇️ Скачать результат (.xlsx)",
-            data=output.getvalue(),
-            file_name=f"результат_{selected_shop}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        # Красивая таблица
+        st.dataframe(
+            res[["Артикул", "Заказ (уп)", "Всего шт", "Цена за штуку", "Цена товара"]].style.format({
+                "Цена товара": "{:,.0f} ₸",
+                "Цена за штуку": "{:,.0f} ₸",
+                "Всего шт": "{:,.0f}",
+                "Заказ (уп)": "{:,.0f}"
+            }),
+            use_container_width=True,
+            hide_index=True
         )
 
-    except Exception as e:
-        st.error(f"🔴 Ошибка: {e}")
+        # ИТОГИ
+        total_packs = res["Заказ (уп)"].sum()
+        total_items_cost = res["Цена товара"].sum()
+        total_ff = total_packs * current_ff_rate
+        grand_total = total_items_cost + total_ff
+
+        st.markdown("---")
+        c_res1, c_res2 = st.columns(2)
+        with c_res1:
+            st.write(f"📦 **Заказов:** {total_packs} уп.")
+            st.write(f"⚙️ **Фулфилмент:** {total_ff:,.0f} ₸")
+            st.write(f"💰 **Стоимость товара:** {total_items_cost:,.0f} ₸")
+        with c_res2:
+            st.metric(label="ИТОГО К ОПЛАТЕ", value=f"{grand_total:,.0f} ₸")
+
+            # Экспорт
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine="openpyxl") as writer:
+                res.to_excel(writer, index=False, sheet_name="Расчет")
+            st.download_button(
+                "⬇️ Скачать Excel",
+                data=output.getvalue(),
+                file_name=f"Расчет_{selected_shop}_{time.strftime('%d%m')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+    else:
+        st.error("❌ Нет данных для расчета. Проверьте артикулы.")

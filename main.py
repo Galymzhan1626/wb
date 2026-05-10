@@ -111,6 +111,10 @@ with st.spinner("⏳ Синхронизация с Google Sheets..."):
 if error:
     st.error(f"❌ {error}")
     st.stop()
+    
+if df_prices is None or df_prices.empty:
+    st.error("❌ Прайс не загружен — получен пустой результат из Google Sheets")
+    st.stop()
 
 st.caption(f"✅ Прайс обновлен в {time.strftime('%H:%M')} | {len(df_prices)} SKU")
 

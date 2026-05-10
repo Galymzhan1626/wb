@@ -5,6 +5,7 @@ import requests
 from google.oauth2.service_account import Credentials
 from io import BytesIO
 import time
+import streamlit_authenticator as stauth
 
 # --- НАСТРОЙКИ ---
 DEFAULT_FF_COST = 400
@@ -19,13 +20,43 @@ SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="Калькулятор Поставок", layout="centered", page_icon="📦")
 
-# Кастомные стили для таблицы и алертов
 st.markdown("""
     <style>
     .stTable {font-size: 14px;}
     .reportview-container .main .block-container {padding-top: 2rem;}
     </style>
     """, unsafe_allow_html=True)
+
+# --- АВТОРИЗАЦИЯ ---
+credentials = {
+    "usernames": {
+        "user1": {
+            "name": "SeiE003YAN8J",
+            "password": stauth.Hasher(["ob`2j2Du6]]Q9fWq6d>XrS_&"]).generate()[0]
+        }
+    }
+}
+
+authenticator = stauth.Authenticate(
+    credentials,
+    "delivery_app",
+    "super_secret_key_xyz_123",
+    cookie_expiry_days=7
+)
+
+authenticator.login()
+
+if st.session_state.get("authentication_status") is False:
+    st.error("❌ Неверный логин или пароль")
+    st.stop()
+
+if st.session_state.get("authentication_status") is None:
+    st.warning("Введите логин и пароль")
+    st.stop()
+
+# --- если дошли сюда — пользователь вошёл ---
+authenticator.logout("Выйти", "sidebar")
+st.sidebar.write(f"👤 {st.session_state.get('name')}")
 
 st.title("📦 Система расчёта себестоимости")
 st.markdown("---")
@@ -52,8 +83,6 @@ def load_prices_from_gsheets(shop_name, service_account_info, sheet_url):
 def get_supply_orders(supply_id: str, api_key: str):
     clean_id = supply_id.strip()
     headers = {"Authorization": api_key}
-
-    # Сначала пробуем прямой метод
     url_direct = f"https://marketplace-api.wildberries.ru/api/v3/supplies/{clean_id}/orders"
 
     try:
@@ -67,15 +96,12 @@ def get_supply_orders(supply_id: str, api_key: str):
                 summary.columns = ["Артикул", "Заказ (уп)"]
                 return summary, None
 
-        # ЕСЛИ 404 или пусто — включаем ПЛАН Б: ищем в общем списке заказов
         url_all = "https://marketplace-api.wildberries.ru/api/v3/orders"
-        # Берем последние 1000 заказов (можно настроить дату)
         params = {"limit": 1000, "next": 0}
         res_all = requests.get(url_all, headers=headers, params=params)
 
         if res_all.status_code == 200:
             all_orders = res_all.json().get("orders", [])
-            # Фильтруем заказы, у которых supplyId совпадает с нашим
             filtered = [o for o in all_orders if str(o.get("supplyId")) == clean_id]
 
             if filtered:
@@ -84,7 +110,7 @@ def get_supply_orders(supply_id: str, api_key: str):
                 summary.columns = ["Артикул", "Заказ (уп)"]
                 return summary, None
             else:
-                return None, f"Заказы для поставки {clean_id} не найдены ни в одном методе."
+                return None, f"Заказы для поставки {clean_id} не найдены."
 
         return None, f"Ошибка API: {res.status_code}"
 
@@ -133,11 +159,12 @@ with tab_api:
     if not api_key:
         st.info("⚠️ API ключ не найден. Используйте Excel или добавьте ключ в настройки.")
     else:
-        c1, c2 = st.columns([3, 1], vertical_alignment = "bottom")
+        c1, c2 = st.columns([3, 1], vertical_alignment="bottom")
         sid = c1.text_input("ID Поставки", placeholder="WB-GI-...")
         if c2.button("Получить", use_container_width=True) and sid:
             summary, api_err = get_supply_orders(sid.strip(), api_key)
-            if api_err: st.error(api_err)
+            if api_err:
+                st.error(api_err)
 
 with tab_file:
     delivery_file = st.file_uploader("Файл поставки (колонка F)", type=["xlsx"])
@@ -152,10 +179,8 @@ with tab_file:
 
 # --- РАСЧЕТЫ ---
 if summary is not None:
-    # Объединение с прайсом
     res = pd.merge(summary, df_prices[["Артикул", "Количество в упаковке", "Цена за штуку"]], on="Артикул", how="left")
 
-    # Обработка ошибок (артикулы не в прайсе)
     unmatched = res[res["Цена за штуку"].isna()]["Артикул"].tolist()
     if unmatched:
         st.warning(f"⚠️ **{len(unmatched)} SKU** не найдены в прайсе и пропущены:\n{', '.join(map(str, unmatched))}")
@@ -163,13 +188,11 @@ if summary is not None:
     res = res.dropna(subset=["Цена за штуку"])
 
     if not res.empty:
-        # Математика
         res["Всего шт"] = res["Заказ (уп)"] * res["Количество в упаковке"]
         res["Цена товара"] = res["Всего шт"] * res["Цена за штуку"]
 
         st.subheader("📊 Результаты расчёта")
 
-        # Красивая таблица
         st.dataframe(
             res[["Артикул", "Заказ (уп)", "Всего шт", "Цена за штуку", "Цена товара"]].style.format({
                 "Цена товара": "{:,.0f} ₸",
@@ -181,7 +204,6 @@ if summary is not None:
             hide_index=True
         )
 
-        # ИТОГИ
         total_packs = res["Заказ (уп)"].sum()
         total_items_cost = res["Цена товара"].sum()
         total_ff = total_packs * current_ff_rate
@@ -196,7 +218,6 @@ if summary is not None:
         with c_res2:
             st.metric(label="ИТОГО К ОПЛАТЕ", value=f"{grand_total:,.0f} ₸")
 
-            # Экспорт
             output = BytesIO()
             with pd.ExcelWriter(output, engine="openpyxl") as writer:
                 res.to_excel(writer, index=False, sheet_name="Расчет")

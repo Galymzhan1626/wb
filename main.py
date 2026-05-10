@@ -33,14 +33,14 @@ st.markdown("---")
 
 # --- GOOGLE SHEETS ---
 @st.cache_data(ttl=300)
-def load_prices_from_gsheets(shop_name):
+def load_prices_from_gsheets(shop_name, service_account_info, sheet_url):
     try:
         creds = Credentials.from_service_account_info(
-            st.secrets["gcp_service_account"],
+            service_account_info,
             scopes=SCOPES
         )
         client = gspread.authorize(creds)
-        spreadsheet = client.open_by_url(st.secrets["sheet_url"])
+        spreadsheet = client.open_by_url(sheet_url)
         worksheet = spreadsheet.worksheet(shop_name)
         return pd.DataFrame(worksheet.get_all_records()), None
     except Exception as e:
@@ -106,12 +106,16 @@ current_ff_rate = 0 if selected_shop in SHOPS_WITHOUT_FF else DEFAULT_FF_COST
 
 # --- ЗАГРУЗКА ДАННЫХ ---
 with st.spinner("⏳ Синхронизация с Google Sheets..."):
-    df_prices, error = load_prices_from_gsheets(selected_shop)
+    df_prices, error = load_prices_from_gsheets(
+        selected_shop,
+        dict(st.secrets["gcp_service_account"]),
+        st.secrets["sheet_url"]
+    )
 
 if error:
     st.error(f"❌ {error}")
     st.stop()
-    
+
 if df_prices is None or df_prices.empty:
     st.error("❌ Прайс не загружен — получен пустой результат из Google Sheets")
     st.stop()

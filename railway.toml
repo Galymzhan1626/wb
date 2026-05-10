@@ -1,2 +1,2 @@
 [deploy]
-startCommand = "mkdir -p /app/.streamlit && echo \"$SECRETS_TOML\" > /app/.streamlit/secrets.toml && streamlit run main.py --server.port $PORT --server.address 0.0.0.0"
+startCommand = "mkdir -p /app/.streamlit && printf '%s' \"$SECRETS_TOML\" > /app/.streamlit/secrets.toml && streamlit run main.py --server.port $PORT --server.address 0.0.0.0"

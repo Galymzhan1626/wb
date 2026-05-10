@@ -6,6 +6,7 @@ from google.oauth2.service_account import Credentials
 from io import BytesIO
 import time
 import streamlit_authenticator as stauth
+from streamlit_authenticator.utilities.hasher import Hasher
 import os
 
 # --- НАСТРОЙКИ ---
@@ -31,9 +32,9 @@ st.markdown("""
 # --- АВТОРИЗАЦИЯ ---
 credentials = {
     "usernames": {
-        "user1": {
-            "name": "SeiE003YAN8J",
-            "password": stauth.Hasher(["ob`2j2Du6]]Q9fWq6d>XrS_&"]).generate()[0]
+        "SeiE003YAN8J": {  # Теперь именно это твой логин для входа (Username)
+            "name": "Менеджер", # Имя, которое будет красиво отображаться в сайдбаре (👤 Менеджер)
+            "password": "$2b$12$OsSAaw38p2ICx2Xj3Yct6u.OnnwqaW99obBa1IcoTvi8GvIEbWnSa"
         }
     }
 }

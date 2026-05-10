@@ -6,6 +6,7 @@ from google.oauth2.service_account import Credentials
 from io import BytesIO
 import time
 import streamlit_authenticator as stauth
+import os
 
 # --- НАСТРОЙКИ ---
 DEFAULT_FF_COST = 400
@@ -64,12 +65,19 @@ st.markdown("---")
 
 # --- GOOGLE SHEETS ---
 @st.cache_data(ttl=300)
-def load_prices_from_gsheets(shop_name, service_account_info, sheet_url):
+def load_prices_from_gsheets(shop_name, sheet_url):
     try:
-        creds = Credentials.from_service_account_info(
-            service_account_info,
-            scopes=SCOPES
-        )
+        service_account_info = {
+            "type": os.environ["GCP_TYPE"],
+            "project_id": os.environ["GCP_PROJECT_ID"],
+            "private_key_id": os.environ["GCP_PRIVATE_KEY_ID"],
+            "private_key": os.environ["GCP_PRIVATE_KEY"].replace("\\n", "\n"),
+            "client_email": os.environ["GCP_CLIENT_EMAIL"],
+            "client_id": os.environ["GCP_CLIENT_ID"],
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+        }
+        creds = Credentials.from_service_account_info(service_account_info, scopes=SCOPES)
         client = gspread.authorize(creds)
         spreadsheet = client.open_by_url(sheet_url)
         worksheet = spreadsheet.worksheet(shop_name)
@@ -134,8 +142,7 @@ current_ff_rate = 0 if selected_shop in SHOPS_WITHOUT_FF else DEFAULT_FF_COST
 with st.spinner("⏳ Синхронизация с Google Sheets..."):
     df_prices, error = load_prices_from_gsheets(
         selected_shop,
-        dict(st.secrets["gcp_service_account"]),
-        st.secrets["sheet_url"]
+        os.environ["SHEET_URL"]
     )
 
 if error:

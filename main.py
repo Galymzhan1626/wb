@@ -6,7 +6,6 @@ from google.oauth2.service_account import Credentials
 from io import BytesIO
 import time
 import streamlit_authenticator as stauth
-from streamlit_authenticator.utilities.hasher import Hasher
 import os
 
 # --- НАСТРОЙКИ ---
@@ -162,8 +161,14 @@ tab_api, tab_file = st.tabs(["🔗 Wildberries API", "📂 Загрузка Exce
 
 summary = None
 
+shop_env_map = {
+    "Абеденов": "WB_KEY_ABEDENOV",
+    # добавьте остальные магазины если появятся ключи
+}
+
 with tab_api:
-    api_key = st.secrets.get("wb_api_keys", {}).get(selected_shop)
+    env_var = shop_env_map.get(selected_shop)
+    api_key = os.environ.get(env_var) if env_var else None
     if not api_key:
         st.info("⚠️ API ключ не найден. Используйте Excel или добавьте ключ в настройки.")
     else:

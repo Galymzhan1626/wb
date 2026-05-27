@@ -258,6 +258,8 @@ with tab_file:
 
 # ------------------------------------------
 # ВКЛАДКА 3: ЭСФ
+# ТН ВЭД берётся из прайса Google Sheets (колонка "ТН ВЭД"),
+# если колонки нет — поле остаётся пустым (каждый магазин имеет свои коды)
 # ------------------------------------------
 with tab_esf:
     st.subheader("Генерация ЭСФ из уведомления о выкупе WB")
@@ -270,7 +272,7 @@ with tab_esf:
 
     if file_wb:
         try:
-            # Словарь ТН ВЭД из прайса
+            # Словарь ТН ВЭД из прайса — если колонка есть, используем её
             tnved_dict = {}
             if "Артикул" in df_prices.columns and "ТН ВЭД" in df_prices.columns:
                 df_prices["Артикул_clean"] = df_prices["Артикул"].astype(str).str.strip()
@@ -278,8 +280,6 @@ with tab_esf:
                     df_prices["ТН ВЭД"].values,
                     index=df_prices["Артикул_clean"]
                 ).to_dict()
-            else:
-                st.warning("⚠️ Колонка «ТН ВЭД» не найдена в прайсе. Графы ТН ВЭД будут пустыми.")
 
             # Читаем уведомление о выкупе WB
             wb_source = openpyxl.load_workbook(file_wb, data_only=True)
@@ -305,6 +305,7 @@ with tab_esf:
 
                     price_per_item = total_sum / qty if qty > 0 else 0
 
+                    # ТН ВЭД: берём из прайса по артикулу, если есть — иначе пусто
                     item_tnved = tnved_dict.get(raw_art, "")
                     if pd.isna(item_tnved):
                         item_tnved = ""
@@ -320,7 +321,7 @@ with tab_esf:
                         "qty": qty,
                         "sum": total_sum,
                         "price": price_per_item,
-                        "tnved": tnved_str
+                        "tnved": tnved_str,
                     })
 
             if not items:
@@ -330,7 +331,7 @@ with tab_esf:
                 st.markdown("---")
                 st.write("**Выберите формат для скачивания:**")
 
-                # Формируем TXT (UTF-16 LE)
+                # Формируем TXT (UTF-16 LE для портала ЭСФ)
                 txt_lines = []
                 txt_lines.append("Раздел G. Данные\u00a0по\u00a0товарам, работам,\u00a0услугам" + "\t" * 17)
                 txt_lines.append("\t" * 17)
@@ -400,7 +401,7 @@ with tab_esf:
                             ws_template.cell(row=row_idx, column=1, value=5)
                             ws_template.cell(row=row_idx, column=2, value=item["name"])
                             ws_template.cell(row=row_idx, column=3, value="")
-                            ws_template.cell(row=row_idx, column=4, value=item["tnved"])
+                            ws_template.cell(row=row_idx, column=4, value=item["tnved"])  # пусто если нет в прайсе
                             ws_template.cell(row=row_idx, column=5, value="Штука")
                             ws_template.cell(row=row_idx, column=6, value=item["qty"])
                             ws_template.cell(row=row_idx, column=7, value=item["price"])

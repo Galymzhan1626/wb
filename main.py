@@ -241,7 +241,7 @@ else:
 
 # --- ЗАГРУЗКА ПРАЙСА ---
 with st.spinner("⏳ Синхронизация с Google Sheets..."):
-    df_prices, error = load_prices_from_gsheets(selected_shop, os.environ["SHEET_URL"])
+    df_prices, error = load_prices_from_gsheets(selected_shop)
 
 if error:
     st.error(f"❌ {error}")
@@ -277,17 +277,20 @@ else:
     # Вкладки для Wildberries
     tab_api, tab_file, tab_esf = st.tabs(["🔗 Wildberries API", "📂 Загрузка Excel", "📝 ЭСФ"])
 
-    shop_env_map = {
-        "Абеденов": "WB_KEY_ABEDENOV",
-        # добавьте остальные магазины если появятся ключи
-    }
+    shop_key_map = {
+    "Абеденов": "Абеденов",
+}
 
     # ------------------------------------------
     # ВКЛАДКА 1: WILDBERRIES API
     # ------------------------------------------
     with tab_api:
-        env_var = shop_env_map.get(selected_shop)
-        api_key = os.environ.get(env_var) if env_var else None
+        shop_name = shop_key_map.get(selected_shop)
+
+if shop_name:
+    api_key = st.secrets["wb_api_keys"].get(shop_name)
+else:
+    api_key = None
         if not api_key:
             st.info("⚠️ API ключ не найден для этого магазина. Используйте вкладку «Загрузка Excel» или добавьте ключ в настройки.")
         else:

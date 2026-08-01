@@ -1,15 +1,13 @@
 import streamlit as st
 import pandas as pd
 import gspread
-import requests
-import pdfplumber
 from google.oauth2.service_account import Credentials
-from io import BytesIO
-import time
-import streamlit_authenticator as stauth
-import os
-import openpyxl
-import codecs
+
+SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive",
+]
+
 
 # --- НАСТРОЙКИ ---
 DEFAULT_FF_COST = 400
@@ -75,26 +73,26 @@ st.markdown("---")
 
 # --- GOOGLE SHEETS ---
 @st.cache_data(ttl=300)
-def load_prices_from_gsheets(shop_name, sheet_url):
+def load_prices_from_gsheets(shop_name):
     try:
-        service_account_info = {
-            "type": os.environ["GCP_TYPE"],
-            "project_id": os.environ["GCP_PROJECT_ID"],
-            "private_key_id": os.environ["GCP_PRIVATE_KEY_ID"],
-            "private_key": os.environ["GCP_PRIVATE_KEY"].replace("\\n", "\n"),
-            "client_email": os.environ["GCP_CLIENT_EMAIL"],
-            "client_id": os.environ["GCP_CLIENT_ID"],
-            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-            "token_uri": "https://oauth2.googleapis.com/token",
-        }
-        creds = Credentials.from_service_account_info(service_account_info, scopes=SCOPES)
-        client = gspread.authorize(creds)
-        spreadsheet = client.open_by_url(sheet_url)
-        worksheet = spreadsheet.worksheet(shop_name)
-        return pd.DataFrame(worksheet.get_all_records()), None
-    except Exception as e:
-        return None, f"Ошибка доступа: {str(e)}"
+        # Берем данные сервисного аккаунта из Secrets
+        service_account_info = dict(st.secrets["gcp_service_account"])
 
+        creds = Credentials.from_service_account_info(
+            service_account_info,
+            scopes=SCOPES,
+        )
+
+        client = gspread.authorize(creds)
+
+        spreadsheet = client.open_by_url(st.secrets["sheet_url"])
+        worksheet = spreadsheet.worksheet(shop_name)
+
+        df = pd.DataFrame(worksheet.get_all_records())
+        return df, None
+
+    except Exception as e:
+        return None, f"Ошибка доступа: {e}"
 
 # --- WILDBERRIES API ---
 @st.cache_data(ttl=60)

@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import gspread
 import requests
+import pdfplumber
 from google.oauth2.service_account import Credentials
 from io import BytesIO
 import time
@@ -12,12 +13,20 @@ import codecs
 
 # --- НАСТРОЙКИ ---
 DEFAULT_FF_COST = 400
-SHOPS = [
+
+WB_SHOPS = [
     "Тлеубаева", "Bonitas", "Мамутова", "Тастанов", "Bastau", "Шукурова",
     "Диханбаев", "Diamond", "Хаким", "Fariza", "Aibar", "Байпакова",
     "Абеденов", "Махамбетова", "Кыдырова", "Жораев",
 ]
-SHOPS_WITHOUT_FF = ["Диханбаев", "Хаким", "Diamond"]
+WB_SHOPS_WITHOUT_FF = ["Диханбаев", "Хаким", "Diamond"]
+
+OZON_SHOPS = [
+    "Магазин 1",  # Сюда можно добавить другие магазины Ozon
+]
+
+ALL_SHOPS = WB_SHOPS + OZON_SHOPS
+
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
 
 # --- PAGE CONFIG ---
@@ -126,6 +135,35 @@ def get_supply_orders(supply_id: str, api_key: str):
         return None, f"Ошибка: {str(e)}"
 
 
+# --- OZON PDF ПАРСЕР ---
+def parse_ozon_pdf(file) -> pd.DataFrame:
+    items = []
+    with pdfplumber.open(file) as pdf:
+        for page in pdf.pages:
+            tables = page.extract_tables()
+            for table in tables:
+                for row in table:
+                    if row and len(row) >= 5:
+                        # Артикул в колонке 4 (индекс 3), кол-во в колонке 5 (индекс 4)
+                        article = str(row[3]).strip() if row[3] else ""
+                        qty_raw = str(row[4]).strip() if row[4] else ""
+                        # Пропускаем заголовок
+                        if article in ("", "Артикул", "None"):
+                            continue
+                        try:
+                            qty = int(qty_raw)
+                        except ValueError:
+                            qty = 1
+                        items.append({"Артикул": article, "Заказ (уп)": qty})
+
+    if not items:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(items)
+    summary = df.groupby("Артикул")["Заказ (уп)"].sum().reset_index()
+    return summary
+
+
 def show_results(summary, df_prices, selected_shop, current_ff_rate):
     """Общая функция расчёта и отображения результатов."""
     res = pd.merge(
@@ -188,14 +226,19 @@ def show_results(summary, df_prices, selected_shop, current_ff_rate):
 # --- ВЫБОР МАГАЗИНА ---
 col_main, col_refresh = st.columns([4, 1])
 with col_main:
-    selected_shop = st.selectbox("🎯 Выберите магазин:", SHOPS)
+    selected_shop = st.selectbox("🎯 Выберите магазин:", ALL_SHOPS)
 with col_refresh:
     st.markdown("<div style='margin-top: 28px'>", unsafe_allow_html=True)
     if st.button("🔄", help="Обновить прайс из Google Sheets"):
         st.cache_data.clear()
         st.rerun()
 
-current_ff_rate = 0 if selected_shop in SHOPS_WITHOUT_FF else DEFAULT_FF_COST
+# Проверяем маркетплейс и настраиваем Фулфилмент
+is_ozon_shop = selected_shop in OZON_SHOPS
+if is_ozon_shop:
+    current_ff_rate = DEFAULT_FF_COST
+else:
+    current_ff_rate = 0 if selected_shop in WB_SHOPS_WITHOUT_FF else DEFAULT_FF_COST
 
 # --- ЗАГРУЗКА ПРАЙСА ---
 with st.spinner("⏳ Синхронизация с Google Sheets..."):
@@ -211,225 +254,235 @@ if df_prices is None or df_prices.empty:
 
 st.caption(f"✅ Прайс обновлен в {time.strftime('%H:%M')} | {len(df_prices)} SKU")
 
-st.subheader(f"🚚 Поставка: {selected_shop}")
+st.subheader(f"🚚 Поставка: {selected_shop} ({'Ozon' if is_ozon_shop else 'Wildberries'})")
 
 # ==========================================
-# ТРИ ВКЛАДКИ ДЛЯ ВСЕХ МАГАЗИНОВ
+# ДИНАМИЧЕСКИЕ ВКЛАДКИ ПО МАРКЕТПЛЕЙСАМ
 # ==========================================
-tab_api, tab_file, tab_esf = st.tabs(["🔗 Wildberries API", "📂 Загрузка Excel", "📝 ЭСФ"])
-
-shop_env_map = {
-    "Абеденов": "WB_KEY_ABEDENOV",
-    # добавьте остальные магазины если появятся ключи
-}
-
-# ------------------------------------------
-# ВКЛАДКА 1: WILDBERRIES API
-# ------------------------------------------
-with tab_api:
-    env_var = shop_env_map.get(selected_shop)
-    api_key = os.environ.get(env_var) if env_var else None
-    if not api_key:
-        st.info("⚠️ API ключ не найден для этого магазина. Используйте вкладку «Загрузка Excel» или добавьте ключ в настройки.")
-    else:
-        c1, c2 = st.columns([3, 1], vertical_alignment="bottom")
-        sid = c1.text_input("ID Поставки", placeholder="WB-GI-...")
-        if c2.button("Получить", use_container_width=True) and sid:
-            summary_api, api_err = get_supply_orders(sid.strip(), api_key)
-            if api_err:
-                st.error(api_err)
-            elif summary_api is not None:
-                show_results(summary_api, df_prices, selected_shop, current_ff_rate)
-
-# ------------------------------------------
-# ВКЛАДКА 2: ЗАГРУЗКА EXCEL
-# ------------------------------------------
-with tab_file:
-    delivery_file = st.file_uploader("Файл поставки (колонка F)", type=["xlsx"], key="delivery_upload")
-    if delivery_file:
-        try:
-            df_raw = pd.read_excel(delivery_file, skiprows=4, usecols="F").dropna()
-            df_raw.columns = ["Артикул"]
-            summary_file = df_raw["Артикул"].value_counts().reset_index()
-            summary_file.columns = ["Артикул", "Заказ (уп)"]
-            show_results(summary_file, df_prices, selected_shop, current_ff_rate)
-        except Exception as e:
-            st.error(f"❌ Ошибка файла: {e}")
-
-# ------------------------------------------
-# ВКЛАДКА 3: ЭСФ
-# ТН ВЭД берётся из прайса Google Sheets (колонка "ТН ВЭД"),
-# если колонки нет — поле остаётся пустым (каждый магазин имеет свои коды)
-# ------------------------------------------
-with tab_esf:
-    st.subheader("Генерация ЭСФ из уведомления о выкупе WB")
-
-    file_wb = st.file_uploader(
-        "Загрузите Excel (уведомление о выкупе WB)",
-        type=["xlsx"],
-        key="wb_notice"
-    )
-
-    if file_wb:
-        try:
-            # Словарь ТН ВЭД из прайса — если колонка есть, используем её
-            tnved_dict = {}
-            if "Артикул" in df_prices.columns and "ТН ВЭД" in df_prices.columns:
-                df_prices["Артикул_clean"] = df_prices["Артикул"].astype(str).str.strip()
-                tnved_dict = pd.Series(
-                    df_prices["ТН ВЭД"].values,
-                    index=df_prices["Артикул_clean"]
-                ).to_dict()
-
-            # Читаем уведомление о выкупе WB
-            wb_source = openpyxl.load_workbook(file_wb, data_only=True)
-            ws_source = wb_source.active
-
-            title = ws_source.cell(row=3, column=1).value
-            if title:
-                st.caption(f"Документ: **{title}**")
-
-            items = []
-            for row in ws_source.iter_rows(min_row=11, values_only=True):
-                if isinstance(row[0], int):
-                    raw_art = str(row[1]).strip() if row[1] is not None else ""
-                    raw_qty = row[3]
-                    raw_sum = row[4]
-
-                    try:
-                        qty = float(str(raw_qty).replace(" ", "").replace(",", ".")) if raw_qty is not None else 0
-                        total_sum = float(str(raw_sum).replace(" ", "").replace(",", ".")) if raw_sum is not None else 0
-                    except Exception:
-                        qty = raw_qty if raw_qty else 0
-                        total_sum = raw_sum if raw_sum else 0
-
-                    price_per_item = total_sum / qty if qty > 0 else 0
-
-                    # ТН ВЭД: берём из прайса по артикулу, если есть — иначе пусто
-                    item_tnved = tnved_dict.get(raw_art, "")
-                    if pd.isna(item_tnved):
-                        item_tnved = ""
-                    tnved_str = str(item_tnved).strip()
-                    if tnved_str.endswith(".0"):
-                        tnved_str = tnved_str[:-2]
-                    if tnved_str == "nan":
-                        tnved_str = ""
-
-                    items.append({
-                        "article": raw_art,
-                        "name": row[2],
-                        "qty": qty,
-                        "sum": total_sum,
-                        "price": price_per_item,
-                        "tnved": tnved_str,
-                    })
-
-            if not items:
-                st.warning("⚠️ Товары не найдены. Проверьте формат уведомления (данные с 11-й строки, номер п/п в колонке A).")
+if is_ozon_shop:
+    # Вкладка для Ozon
+    tab_ozon = st.tabs(["🔵 Загрузка Ozon PDF"])[0]
+    
+    with tab_ozon:
+        ozon_file = st.file_uploader("Загрузите PDF от Ozon", type=["pdf"], key="ozon_pdf")
+        if ozon_file:
+            with st.spinner("Читаем PDF..."):
+                summary_ozon = parse_ozon_pdf(ozon_file)
+            if summary_ozon.empty:
+                st.error("❌ Не удалось извлечь артикулы из PDF. Проверьте формат файла.")
             else:
-                st.success(f"✅ Найдено позиций: {len(items)}")
-                st.markdown("---")
-                st.write("**Выберите формат для скачивания:**")
+                st.success(f"✅ Найдено позиций: {len(summary_ozon)}")
+                show_results(summary_ozon, df_prices, selected_shop, current_ff_rate)
 
-                # Формируем TXT (UTF-16 LE для портала ЭСФ)
-                txt_lines = []
-                txt_lines.append("Раздел G. Данные\u00a0по\u00a0товарам, работам,\u00a0услугам" + "\t" * 17)
-                txt_lines.append("\t" * 17)
-                headers_line = (
-                    "Признак происхождения товара, работ, услуг*\t"
-                    "Наименование товаров, работ, услуг*\t"
-                    "Наименование товаров в соответствии с Декларацией на товары или заявлением о ввозе товаров и уплате косвенных налогов\t"
-                    "Код товара (ТН ВЭД ЕАЭС)\tЕд. изм.\tКол-во (объем)\t"
-                    "Цена (тариф) за единицу товара, работы, услуги без косвенных налогов\t"
-                    "Стоимость товаров, работ, услуг без косвенных налогов*\t"
-                    "Акциз- Ставка\tАкциз- Сумма\t"
-                    "Размер оборота по реализации (облагаемый/необлагаемый оборот)*\t"
-                    "НДС- Ставка\tНДС- Сумма\t"
-                    "Стоимость товаров, работ, услуг с учетом косвенных налогов*\t"
-                    "№ Декларации на товары, заявления в рамках ТС, СТ-1 или СТ-KZ\t"
-                    "Номер товарной позиции из заявления в рамках ТС или Декларации на товары\t"
-                    "Идентификатор товара, работ, услуг\tДополнительные данные"
-                )
-                txt_lines.append(headers_line)
-                txt_lines.append("\t" * 17)
-                txt_lines.append("2\t3\t3/1\t4\t5\t6\t7\t8\t9\t10\t11\t12\t13\t14\t15\t16\t17\t18")
+else:
+    # Вкладки для Wildberries
+    tab_api, tab_file, tab_esf = st.tabs(["🔗 Wildberries API", "📂 Загрузка Excel", "📝 ЭСФ"])
 
-                for item in items:
-                    qty_val = item["qty"]
-                    qty_str = (
-                        str(int(qty_val))
-                        if isinstance(qty_val, float) and qty_val.is_integer()
-                        else f"{qty_val:.2f}".replace(".", ",")
-                    )
-                    price_str = f"{item['price']:.2f}".replace(".", ",")
-                    sum_str = f"{item['sum']:.2f}".replace(".", ",")
+    shop_env_map = {
+        "Абеденов": "WB_KEY_ABEDENOV",
+        # добавьте остальные магазины если появятся ключи
+    }
 
-                    row_fields = [
-                        "5", str(item["name"]), "", item["tnved"], "Штука",
-                        qty_str, price_str, sum_str, "", "",
-                        sum_str, "Без НДС", "0", sum_str, "", "", "1", ""
-                    ]
-                    txt_lines.append("\t".join(row_fields))
+    # ------------------------------------------
+    # ВКЛАДКА 1: WILDBERRIES API
+    # ------------------------------------------
+    with tab_api:
+        env_var = shop_env_map.get(selected_shop)
+        api_key = os.environ.get(env_var) if env_var else None
+        if not api_key:
+            st.info("⚠️ API ключ не найден для этого магазина. Используйте вкладку «Загрузка Excel» или добавьте ключ в настройки.")
+        else:
+            c1, c2 = st.columns([3, 1], vertical_alignment="bottom")
+            sid = c1.text_input("ID Поставки", placeholder="WB-GI-...")
+            if c2.button("Получить", use_container_width=True) and sid:
+                summary_api, api_err = get_supply_orders(sid.strip(), api_key)
+                if api_err:
+                    st.error(api_err)
+                elif summary_api is not None:
+                    show_results(summary_api, df_prices, selected_shop, current_ff_rate)
 
-                txt_content = "\r\n".join(txt_lines)
-                encoded_content = codecs.BOM_UTF16_LE + txt_content.encode("utf-16-le")
+    # ------------------------------------------
+    # ВКЛАДКА 2: ЗАГРУЗКА EXCEL
+    # ------------------------------------------
+    with tab_file:
+        delivery_file = st.file_uploader("Файл поставки (колонка F)", type=["xlsx"], key="delivery_upload")
+        if delivery_file:
+            try:
+                df_raw = pd.read_excel(delivery_file, skiprows=4, usecols="F").dropna()
+                df_raw.columns = ["Артикул"]
+                summary_file = df_raw["Артикул"].value_counts().reset_index()
+                summary_file.columns = ["Артикул", "Заказ (уп)"]
+                show_results(summary_file, df_prices, selected_shop, current_ff_rate)
+            except Exception as e:
+                st.error(f"❌ Ошибка файла: {e}")
 
-                st.download_button(
-                    label="📄 Скачать ЭСФ (.txt) — Рекомендуется",
-                    data=encoded_content,
-                    file_name=f"ЭСФ_{selected_shop}_{time.strftime('%d%m')}.txt",
-                    mime="text/plain",
-                    key="download_txt_btn"
-                )
+    # ------------------------------------------
+    # ВКЛАДКА 3: ЭСФ
+    # ------------------------------------------
+    with tab_esf:
+        st.subheader("Генерация ЭСФ из уведомления о выкупе WB")
 
-                st.caption("или")
+        file_wb = st.file_uploader(
+            "Загрузите Excel (уведомление о выкупе WB)",
+            type=["xlsx"],
+            key="wb_notice"
+        )
 
-                # Excel-шаблон (schedule.xlsx)
-                BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-                TEMPLATE_ESF_FILE = os.path.join(BASE_DIR, "schedule.xlsx")
+        if file_wb:
+            try:
+                tnved_dict = {}
+                if "Артикул" in df_prices.columns and "ТН ВЭД" in df_prices.columns:
+                    df_prices["Артикул_clean"] = df_prices["Артикул"].astype(str).str.strip()
+                    tnved_dict = pd.Series(
+                        df_prices["ТН ВЭД"].values,
+                        index=df_prices["Артикул_clean"]
+                    ).to_dict()
 
-                if not os.path.exists(TEMPLATE_ESF_FILE):
-                    st.info("💡 Скачивание в Excel недоступно — файл 'schedule.xlsx' не найден в папке проекта.")
+                wb_source = openpyxl.load_workbook(file_wb, data_only=True)
+                ws_source = wb_source.active
+
+                title = ws_source.cell(row=3, column=1).value
+                if title:
+                    st.caption(f"Документ: **{title}**")
+
+                items = []
+                for row in ws_source.iter_rows(min_row=11, values_only=True):
+                    if isinstance(row[0], int):
+                        raw_art = str(row[1]).strip() if row[1] is not None else ""
+                        raw_qty = row[3]
+                        raw_sum = row[4]
+
+                        try:
+                            qty = float(str(raw_qty).replace(" ", "").replace(",", ".")) if raw_qty is not None else 0
+                            total_sum = float(str(raw_sum).replace(" ", "").replace(",", ".")) if raw_sum is not None else 0
+                        except Exception:
+                            qty = raw_qty if raw_qty else 0
+                            total_sum = raw_sum if raw_sum else 0
+
+                        price_per_item = total_sum / qty if qty > 0 else 0
+
+                        item_tnved = tnved_dict.get(raw_art, "")
+                        if pd.isna(item_tnved):
+                            item_tnved = ""
+                        tnved_str = str(item_tnved).strip()
+                        if tnved_str.endswith(".0"):
+                            tnved_str = tnved_str[:-2]
+                        if tnved_str == "nan":
+                            tnved_str = ""
+
+                        items.append({
+                            "article": raw_art,
+                            "name": row[2],
+                            "qty": qty,
+                            "sum": total_sum,
+                            "price": price_per_item,
+                            "tnved": tnved_str,
+                        })
+
+                if not items:
+                    st.warning("⚠️ Товары не найдены. Проверьте формат уведомления.")
                 else:
-                    try:
-                        wb_template = openpyxl.load_workbook(TEMPLATE_ESF_FILE)
-                        ws_template = wb_template.active
+                    st.success(f"✅ Найдено позиций: {len(items)}")
+                    st.markdown("---")
+                    st.write("**Выберите формат для скачивания:**")
 
-                        START_ROW = 6
-                        for i, item in enumerate(items):
-                            row_idx = START_ROW + i
-                            ws_template.cell(row=row_idx, column=1, value=5)
-                            ws_template.cell(row=row_idx, column=2, value=item["name"])
-                            ws_template.cell(row=row_idx, column=3, value="")
-                            ws_template.cell(row=row_idx, column=4, value=item["tnved"])  # пусто если нет в прайсе
-                            ws_template.cell(row=row_idx, column=5, value="Штука")
-                            ws_template.cell(row=row_idx, column=6, value=item["qty"])
-                            ws_template.cell(row=row_idx, column=7, value=item["price"])
-                            ws_template.cell(row=row_idx, column=8, value=item["sum"])
-                            ws_template.cell(row=row_idx, column=9, value="")
-                            ws_template.cell(row=row_idx, column=10, value="")
-                            ws_template.cell(row=row_idx, column=11, value=item["sum"])
-                            ws_template.cell(row=row_idx, column=12, value="Без НДС")
-                            ws_template.cell(row=row_idx, column=13, value=0)
-                            ws_template.cell(row=row_idx, column=14, value=item["sum"])
-                            ws_template.cell(row=row_idx, column=15, value="")
-                            ws_template.cell(row=row_idx, column=16, value="")
-                            ws_template.cell(row=row_idx, column=17, value=1)
-                            ws_template.cell(row=row_idx, column=18, value="")
+                    txt_lines = []
+                    txt_lines.append("Раздел G. Данные\u00a0по\u00a0товарам, работам,\u00a0услугам" + "\t" * 17)
+                    txt_lines.append("\t" * 17)
+                    headers_line = (
+                        "Признак происхождения товара, работ, услуг*\t"
+                        "Наименование товаров, работ, услуг*\t"
+                        "Наименование товаров в соответствии с Декларацией на товары или заявлением о ввозе товаров и уплате косвенных налогов\t"
+                        "Код товара (ТН ВЭД ЕАЭС)\tЕд. изм.\tКол-во (объем)\t"
+                        "Цена (тариф) за единицу товара, работы, услуги без косвенных налогов\t"
+                        "Стоимость товаров, работ, услуг без косвенных налогов*\t"
+                        "Акциз- Ставка\tАкциз- Сумма\t"
+                        "Размер оборота по реализации (облагаемый/необлагаемый оборот)*\t"
+                        "НДС- Ставка\tНДС- Сумма\t"
+                        "Стоимость товаров, работ, услуг с учетом косвенных налогов*\t"
+                        "№ Декларации на товары, заявления в рамках ТС, СТ-1 или СТ-KZ\t"
+                        "Номер товарной позиции из заявления в рамках ТС или Декларации на товары\t"
+                        "Идентификатор товара, работ, услуг\tДополнительные данные"
+                    )
+                    txt_lines.append(headers_line)
+                    txt_lines.append("\t" * 17)
+                    txt_lines.append("2\t3\t3/1\t4\t5\t6\t7\t8\t9\t10\t11\t12\t13\t14\t15\t16\t17\t18")
 
-                        output_esf = BytesIO()
-                        wb_template.save(output_esf)
-                        output_esf.seek(0)
-
-                        st.download_button(
-                            label="⬇️ Скачать заполненный шаблон (.xlsx)",
-                            data=output_esf.getvalue(),
-                            file_name=f"ЭСФ_{selected_shop}_{time.strftime('%d%m')}.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            key="download_xlsx_btn"
+                    for item in items:
+                        qty_val = item["qty"]
+                        qty_str = (
+                            str(int(qty_val))
+                            if isinstance(qty_val, float) and qty_val.is_integer()
+                            else f"{qty_val:.2f}".replace(".", ",")
                         )
-                    except Exception as e:
-                        st.error(f"Ошибка при сохранении в Excel-шаблон: {e}")
+                        price_str = f"{item['price']:.2f}".replace(".", ",")
+                        sum_str = f"{item['sum']:.2f}".replace(".", ",")
 
-        except Exception as e:
-            st.error(f"🔴 Ошибка при обработке уведомления: {e}")
+                        row_fields = [
+                            "5", str(item["name"]), "", item["tnved"], "Штука",
+                            qty_str, price_str, sum_str, "", "",
+                            sum_str, "Без НДС", "0", sum_str, "", "", "1", ""
+                        ]
+                        txt_lines.append("\t".join(row_fields))
+
+                    txt_content = "\r\n".join(txt_lines)
+                    encoded_content = codecs.BOM_UTF16_LE + txt_content.encode("utf-16-le")
+
+                    st.download_button(
+                        label="📄 Скачать ЭСФ (.txt) — Рекомендуется",
+                        data=encoded_content,
+                        file_name=f"ЭСФ_{selected_shop}_{time.strftime('%d%m')}.txt",
+                        mime="text/plain",
+                        key="download_txt_btn"
+                    )
+
+                    st.caption("или")
+
+                    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+                    TEMPLATE_ESF_FILE = os.path.join(BASE_DIR, "schedule.xlsx")
+
+                    if not os.path.exists(TEMPLATE_ESF_FILE):
+                        st.info("💡 Скачивание в Excel недоступно — файл 'schedule.xlsx' не найден в папке проекта.")
+                    else:
+                        try:
+                            wb_template = openpyxl.load_workbook(TEMPLATE_ESF_FILE)
+                            ws_template = wb_template.active
+
+                            START_ROW = 6
+                            for i, item in enumerate(items):
+                                row_idx = START_ROW + i
+                                ws_template.cell(row=row_idx, column=1, value=5)
+                                ws_template.cell(row=row_idx, column=2, value=item["name"])
+                                ws_template.cell(row=row_idx, column=3, value="")
+                                ws_template.cell(row=row_idx, column=4, value=item["tnved"])
+                                ws_template.cell(row=row_idx, column=5, value="Штука")
+                                ws_template.cell(row=row_idx, column=6, value=item["qty"])
+                                ws_template.cell(row=row_idx, column=7, value=item["price"])
+                                ws_template.cell(row=row_idx, column=8, value=item["sum"])
+                                ws_template.cell(row=row_idx, column=9, value="")
+                                ws_template.cell(row=row_idx, column=10, value="")
+                                ws_template.cell(row=row_idx, column=11, value=item["sum"])
+                                ws_template.cell(row=row_idx, column=12, value="Без НДС")
+                                ws_template.cell(row=row_idx, column=13, value=0)
+                                ws_template.cell(row=row_idx, column=14, value=item["sum"])
+                                ws_template.cell(row=row_idx, column=15, value="")
+                                ws_template.cell(row=row_idx, column=16, value="")
+                                ws_template.cell(row=row_idx, column=17, value=1)
+                                ws_template.cell(row=row_idx, column=18, value="")
+
+                            output_esf = BytesIO()
+                            wb_template.save(output_esf)
+                            output_esf.seek(0)
+
+                            st.download_button(
+                                label="⬇️ Скачать заполненный шаблон (.xlsx)",
+                                data=output_esf.getvalue(),
+                                file_name=f"ЭСФ_{selected_shop}_{time.strftime('%d%m')}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                key="download_xlsx_btn"
+                            )
+                        except Exception as e:
+                            st.error(f"Ошибка при сохранении в Excel-шаблон: {e}")
+
+            except Exception as e:
+                st.error(f"🔴 Ошибка при обработке уведомления: {e}")

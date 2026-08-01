@@ -291,18 +291,7 @@ if shop_name:
     api_key = st.secrets["wb_api_keys"].get(shop_name)
 else:
     api_key = None
-        if not api_key:
-            st.info("⚠️ API ключ не найден для этого магазина. Используйте вкладку «Загрузка Excel» или добавьте ключ в настройки.")
-        else:
-            c1, c2 = st.columns([3, 1], vertical_alignment="bottom")
-            sid = c1.text_input("ID Поставки", placeholder="WB-GI-...")
-            if c2.button("Получить", use_container_width=True) and sid:
-                summary_api, api_err = get_supply_orders(sid.strip(), api_key)
-                if api_err:
-                    st.error(api_err)
-                elif summary_api is not None:
-                    show_results(summary_api, df_prices, selected_shop, current_ff_rate)
-
+       
     # ------------------------------------------
     # ВКЛАДКА 2: ЗАГРУЗКА EXCEL
     # ------------------------------------------

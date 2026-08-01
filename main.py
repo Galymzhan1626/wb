@@ -1,15 +1,16 @@
-import streamlit as st
+import os
+import time
+import codecs
+from io import BytesIO
+
+import requests
+import pdfplumber
+import openpyxl
 import pandas as pd
+import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
 import streamlit_authenticator as stauth
-import time
-
-SCOPES = [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive",
-]
-
 
 # --- НАСТРОЙКИ ---
 DEFAULT_FF_COST = 400
@@ -77,24 +78,19 @@ st.markdown("---")
 @st.cache_data(ttl=300)
 def load_prices_from_gsheets(shop_name):
     try:
-        # Берем данные сервисного аккаунта из Secrets
         service_account_info = dict(st.secrets["gcp_service_account"])
-
         creds = Credentials.from_service_account_info(
             service_account_info,
             scopes=SCOPES,
         )
-
         client = gspread.authorize(creds)
-
         spreadsheet = client.open_by_url(st.secrets["sheet_url"])
         worksheet = spreadsheet.worksheet(shop_name)
-
         df = pd.DataFrame(worksheet.get_all_records())
         return df, None
-
     except Exception as e:
         return None, f"Ошибка доступа: {e}"
+
 
 # --- WILDBERRIES API ---
 @st.cache_data(ttl=60)
@@ -116,7 +112,7 @@ def get_supply_orders(supply_id: str, api_key: str):
 
         url_all = "https://marketplace-api.wildberries.ru/api/v3/orders"
         params = {"limit": 1000, "next": 0}
-        res_all = requests.get(url_all, headers=headers, params=params)
+        res_all = requests.get(url_all, headers=headers, params=params, timeout=15)
 
         if res_all.status_code == 200:
             all_orders = res_all.json().get("orders", [])
@@ -144,10 +140,8 @@ def parse_ozon_pdf(file) -> pd.DataFrame:
             for table in tables:
                 for row in table:
                     if row and len(row) >= 5:
-                        # Артикул в колонке 4 (индекс 3), кол-во в колонке 5 (индекс 4)
                         article = str(row[3]).strip() if row[3] else ""
                         qty_raw = str(row[4]).strip() if row[4] else ""
-                        # Пропускаем заголовок
                         if article in ("", "Артикул", "None"):
                             continue
                         try:
@@ -262,7 +256,7 @@ st.subheader(f"🚚 Поставка: {selected_shop} ({'Ozon' if is_ozon_shop e
 if is_ozon_shop:
     # Вкладка для Ozon
     tab_ozon = st.tabs(["🔵 Загрузка Ozon PDF"])[0]
-    
+
     with tab_ozon:
         ozon_file = st.file_uploader("Загрузите PDF от Ozon", type=["pdf"], key="ozon_pdf")
         if ozon_file:
@@ -279,8 +273,8 @@ else:
     tab_api, tab_file, tab_esf = st.tabs(["🔗 Wildberries API", "📂 Загрузка Excel", "📝 ЭСФ"])
 
     shop_key_map = {
-    "Абеденов": "Абеденов",
-}
+        "Абеденов": "Абеденов",
+    }
 
     # ------------------------------------------
     # ВКЛАДКА 1: WILDBERRIES API
@@ -288,11 +282,27 @@ else:
     with tab_api:
         shop_name = shop_key_map.get(selected_shop)
 
-if shop_name:
-    api_key = st.secrets["wb_api_keys"].get(shop_name)
-else:
-    api_key = None
-       
+        if shop_name:
+            api_key = st.secrets.get("wb_api_keys", {}).get(shop_name)
+        else:
+            api_key = None
+
+        if not api_key:
+            st.info("ℹ️ Для этого магазина API-ключ WB не настроен в secrets. Используйте вкладку «Загрузка Excel».")
+        else:
+            supply_id = st.text_input("Номер поставки WB", key="wb_supply_id", placeholder="Например: WB-GI-123456789")
+            if st.button("📥 Получить заказы по поставке", key="fetch_supply_btn"):
+                if not supply_id.strip():
+                    st.warning("⚠️ Введите номер поставки.")
+                else:
+                    with st.spinner("Запрашиваем данные у Wildberries..."):
+                        summary_api, api_error = get_supply_orders(supply_id, api_key)
+                    if api_error:
+                        st.error(f"❌ {api_error}")
+                    else:
+                        st.success(f"✅ Найдено позиций: {len(summary_api)}")
+                        show_results(summary_api, df_prices, selected_shop, current_ff_rate)
+
     # ------------------------------------------
     # ВКЛАДКА 2: ЗАГРУЗКА EXCEL
     # ------------------------------------------

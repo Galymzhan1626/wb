@@ -31,6 +31,7 @@ GSHEETS_SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
 # Соответствие "магазин в интерфейсе" -> "ключ в st.secrets['wb_api_keys']"
 WB_SHOP_TO_SECRET_KEY = {
     "Абеденов": "Абеденов",
+    "Bastau": "Bastau",
 }
 
 st.set_page_config(page_title="Калькулятор Поставок WB", layout="centered", page_icon="📦")

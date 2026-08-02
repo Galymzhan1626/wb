@@ -232,5 +232,4 @@ if st.button("📥 Получить заказы по поставке", use_con
         if api_error:
             st.error(f"❌ {api_error}")
         else:
-            st.success(f"✅ Найдено позиций: {len(summary_api)}")
             show_results(summary_api, df_prices, selected_shop, current_ff_rate)

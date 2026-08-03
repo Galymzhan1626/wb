@@ -3,7 +3,6 @@ FFCalculator (минимальная версия) — расчёт себест
 через WB API + прайс из Google Sheets.
 """
 
-import os
 import time
 from io import BytesIO
 
@@ -29,44 +28,15 @@ WB_SHOPS_WITHOUT_FF = ["Диханбаев", "Хаким", "Diamond"]
 
 GSHEETS_SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
 
-# Соответствие "магазин в интерфейсе" -> "имя переменной окружения в Railway"
-# ВАЖНО: держим синхронно с worker.py
-WB_SHOP_ENV_VARS = {
-    "Абеденов": "WB_KEY_ABEDENOV",
-    "Bastau": "WB_KEY_BASTAU",
+# Соответствие "магазин в интерфейсе" -> "ключ в st.secrets['wb_api_keys']"
+WB_SHOP_TO_SECRET_KEY = {
+    "Абеденов": "Абеденов",
+    "Bastau": "Bastau",
 }
 
 st.set_page_config(page_title="Калькулятор Поставок WB", layout="centered", page_icon="📦")
 st.title("📦 Калькулятор себестоимости поставки WB")
 st.markdown("---")
-
-
-# =========================================================
-# ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ (Railway Variables)
-# =========================================================
-
-def require_env(name: str) -> str:
-    value = os.environ.get(name)
-    if not value:
-        raise RuntimeError(f"Не задана переменная окружения {name} в Railway")
-    return value
-
-
-def get_google_credentials() -> Credentials:
-    """Собирает service account info из отдельных переменных окружения GCP_*."""
-    info = {
-        "type": os.environ.get("GCP_TYPE", "service_account"),
-        "project_id": require_env("GCP_PROJECT_ID"),
-        "private_key_id": require_env("GCP_PRIVATE_KEY_ID"),
-        "private_key": require_env("GCP_PRIVATE_KEY").replace("\\n", "\n"),
-        "client_email": require_env("GCP_CLIENT_EMAIL"),
-        "client_id": require_env("GCP_CLIENT_ID"),
-        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-        "token_uri": "https://oauth2.googleapis.com/token",
-        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-        "universe_domain": "googleapis.com",
-    }
-    return Credentials.from_service_account_info(info, scopes=GSHEETS_SCOPES)
 
 
 # =========================================================
@@ -76,9 +46,11 @@ def get_google_credentials() -> Credentials:
 @st.cache_data(ttl=300)
 def load_prices_from_gsheets(shop_name: str):
     try:
-        creds = get_google_credentials()
+        creds = Credentials.from_service_account_info(
+            dict(st.secrets["gcp_service_account"]), scopes=GSHEETS_SCOPES
+        )
         client = gspread.authorize(creds)
-        spreadsheet = client.open_by_url(require_env("SHEET_URL"))
+        spreadsheet = client.open_by_url(st.secrets["sheet_url"])
         worksheet = spreadsheet.worksheet(shop_name)
         df = pd.DataFrame(worksheet.get_all_records())
         return df, None
@@ -238,18 +210,15 @@ if df_prices is None or df_prices.empty:
 st.caption(f"✅ Прайс обновлен в {time.strftime('%H:%M')} | {len(df_prices)} SKU")
 st.subheader(f"🚚 Поставка: {selected_shop}")
 
-secret_env_name = WB_SHOP_ENV_VARS.get(selected_shop)
+secret_key_name = WB_SHOP_TO_SECRET_KEY.get(selected_shop)
 api_key = None
-if secret_env_name:
-    raw_key = os.environ.get(secret_env_name)
+if secret_key_name:
+    raw_key = st.secrets.get("wb_api_keys", {}).get(secret_key_name)
     if raw_key:
         api_key = raw_key.strip()
 
 if not api_key:
-    st.error(
-        f"❌ Для магазина «{selected_shop}» не задан API-ключ WB. "
-        f"Добавь переменную `{secret_env_name or 'WB_KEY_...'}` в Railway Variables."
-    )
+    st.error(f"❌ Для магазина «{selected_shop}» не задан API-ключ WB в secrets (`wb_api_keys`).")
     st.stop()
 
 supply_id = st.text_input("Номер поставки WB", placeholder="Например: WB-GI-123456789")

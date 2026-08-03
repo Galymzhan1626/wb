@@ -4,4 +4,3 @@ openpyxl
 requests
 gspread
 google-auth
-toml

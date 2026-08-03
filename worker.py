@@ -21,7 +21,6 @@ from zoneinfo import ZoneInfo
 import requests
 import pandas as pd
 import gspread
-import toml
 from google.oauth2.service_account import Credentials
 
 # =========================================================
@@ -40,11 +39,11 @@ TIMEZONE = ZoneInfo("Asia/Almaty")
 DEFAULT_FF_COST = 400
 WB_SHOPS_WITHOUT_FF = ["Диханбаев", "Хаким", "Diamond"]
 
-# Магазин в интерфейсе -> ключ в secrets["wb_api_keys"]
+# Магазин в интерфейсе -> имя переменной окружения в Railway с его WB API-ключом.
 # ВАЖНО: держим синхронно с main.py
-WB_SHOP_TO_SECRET_KEY = {
-    "Абеденов": "Абеденов",
-    "Bastau": "Bastau",
+WB_SHOP_ENV_VARS = {
+    "Абеденов": "WB_KEY_ABEDENOV",
+    "Bastau": "WB_KEY_BASTAU",
 }
 
 
@@ -54,28 +53,49 @@ def log(msg: str):
 
 
 # =========================================================
-# SECRETS
+# ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ (Railway Variables)
 # =========================================================
 
-def load_secrets() -> dict:
-    """
-    Читает тот же TOML, что и Streamlit-приложение — из переменной окружения
-    SECRETS_TOML (см. railway.toml), либо из локального .streamlit/secrets.toml
-    при разработке.
-    """
-    raw = os.environ.get("SECRETS_TOML")
-    if raw:
-        return toml.loads(raw)
-
-    local_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".streamlit", "secrets.toml")
-    if os.path.exists(local_path):
-        with open(local_path, "r", encoding="utf-8") as f:
-            return toml.load(f)
-
-    raise RuntimeError("Не найдены secrets: ни SECRETS_TOML, ни .streamlit/secrets.toml")
+def require_env(name: str) -> str:
+    value = os.environ.get(name)
+    if not value:
+        raise RuntimeError(f"Не задана переменная окружения {name} в Railway")
+    return value
 
 
-SECRETS = load_secrets()
+def get_google_credentials() -> Credentials:
+    """Собирает service account info из отдельных переменных окружения GCP_*."""
+    info = {
+        "type": os.environ.get("GCP_TYPE", "service_account"),
+        "project_id": require_env("GCP_PROJECT_ID"),
+        "private_key_id": require_env("GCP_PRIVATE_KEY_ID"),
+        # В Railway многострочный ключ обычно хранится как \n (два символа) —
+        # превращаем их обратно в настоящие переносы строк.
+        "private_key": require_env("GCP_PRIVATE_KEY").replace("\\n", "\n"),
+        "client_email": require_env("GCP_CLIENT_EMAIL"),
+        "client_id": require_env("GCP_CLIENT_ID"),
+        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+        "token_uri": "https://oauth2.googleapis.com/token",
+        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+        "universe_domain": "googleapis.com",
+    }
+    return Credentials.from_service_account_info(info, scopes=GSHEETS_SCOPES)
+
+
+def get_sheet_url() -> str:
+    return require_env("SHEET_URL")
+
+
+def get_wb_api_key(shop: str) -> str | None:
+    env_name = WB_SHOP_ENV_VARS.get(shop)
+    if not env_name:
+        return None
+    value = os.environ.get(env_name)
+    return value.strip() if value else None
+
+
+def get_telegram_config() -> tuple[str | None, str | None]:
+    return os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID")
 
 
 # =========================================================
@@ -112,11 +132,9 @@ def load_prices(shop_name: str) -> pd.DataFrame | None:
         return cached[1]
 
     try:
-        creds = Credentials.from_service_account_info(
-            dict(SECRETS["gcp_service_account"]), scopes=GSHEETS_SCOPES
-        )
+        creds = get_google_credentials()
         client = gspread.authorize(creds)
-        spreadsheet = client.open_by_url(SECRETS["sheet_url"])
+        spreadsheet = client.open_by_url(get_sheet_url())
         worksheet = spreadsheet.worksheet(shop_name)
         df = pd.DataFrame(worksheet.get_all_records())
         _price_cache[shop_name] = (now, df)
@@ -228,12 +246,10 @@ def calculate(summary: pd.DataFrame, df_prices: pd.DataFrame, ff_rate: float) ->
 # =========================================================
 
 def send_telegram_message(text: str):
-    tg = SECRETS.get("telegram", {})
-    bot_token = tg.get("bot_token")
-    chat_id = tg.get("chat_id")
+    bot_token, chat_id = get_telegram_config()
 
     if not bot_token or not chat_id:
-        log("❌ Не заданы telegram.bot_token / telegram.chat_id в secrets — уведомление не отправлено")
+        log("❌ Не заданы TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID в переменных Railway — уведомление не отправлено")
         return
 
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
@@ -279,11 +295,7 @@ def format_supply_message(shop: str, supply_id: str, supply_name: str, calc: dic
 # =========================================================
 
 def check_shop(shop: str, state: dict):
-    secret_key = WB_SHOP_TO_SECRET_KEY.get(shop)
-    if not secret_key:
-        return
-
-    api_key = SECRETS.get("wb_api_keys", {}).get(secret_key)
+    api_key = get_wb_api_key(shop)
     if not api_key:
         return
 
@@ -359,7 +371,7 @@ def main_loop():
             time.sleep(wait_seconds)
             continue
 
-        for shop in WB_SHOP_TO_SECRET_KEY:
+        for shop in WB_SHOP_ENV_VARS:
             try:
                 check_shop(shop, state)
             except Exception:

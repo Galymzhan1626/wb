@@ -32,6 +32,10 @@ GSHEETS_SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
 WB_SHOP_TO_SECRET_KEY = {
     "Абеденов": "Абеденов",
     "Bastau": "Bastau",
+    "Диханбаев": "Диханбаев",
+    "Тлеубаева": "Тлеубаева",
+    "Fariza": "Fariza",
+    "Шукурова": "Шукурова",
 }
 
 st.set_page_config(page_title="Калькулятор Поставок WB", layout="centered", page_icon="📦")

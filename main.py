@@ -24,7 +24,7 @@ WB_SHOPS = [
     "Диханбаев", "Diamond", "Хаким", "Fariza", "Aibar", "Байпакова",
     "Абеденов", "Махамбетова", "Кыдырова", "Жораев",
 ]
-WB_SHOPS_WITHOUT_FF = ["Диханбаев", "Хаким", "Diamond"]
+WB_SHOPS_WITHOUT_FF = ["Диханбаев", "Хаким", "Diamond","Шукурова","Fariza","Bonitas","Мамутова","Тлеубаева"]
 
 GSHEETS_SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
 

@@ -156,7 +156,7 @@ def show_results(summary: pd.DataFrame, df_prices: pd.DataFrame, selected_shop: 
     res["Всего шт"] = res["Заказ (уп)"] * res["Количество в упаковке"]
     res["Цена товара"] = res["Всего шт"] * res["Цена за штуку"]
 
-    st.subheader("📊 Результаты расчёта")
+    st.subheader(shop_name)
     st.dataframe(
         res[["Артикул", "Заказ (уп)", "Всего шт", "Цена за штуку", "Цена товара"]].style.format({
             "Цена товара": "{:,.0f} ₸",
@@ -245,5 +245,4 @@ if st.button("📥 Получить заказы по поставке", use_con
         if api_error:
             st.error(f"❌ {api_error}")
         else:
-            st.success(f"✅ Найдено позиций: {len(summary_api)}")
             show_results(summary_api, df_prices, selected_shop, current_ff_rate)

@@ -48,7 +48,7 @@ WB_SHOP_TO_SECRET_KEY = {
 }
 
 st.set_page_config(page_title="Калькулятор Поставок WB", layout="centered", page_icon="📦")
-st.title("📦 Калькулятор себестоимости поставки WB")
+st.title("📦 Калькулятор поставки WB")
 st.markdown("---")
 
 

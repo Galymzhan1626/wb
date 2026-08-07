@@ -156,7 +156,7 @@ def show_results(summary: pd.DataFrame, df_prices: pd.DataFrame, selected_shop: 
     res["Всего шт"] = res["Заказ (уп)"] * res["Количество в упаковке"]
     res["Цена товара"] = res["Всего шт"] * res["Цена за штуку"]
 
-    st.subheader(shop_name)
+    st.subheader(selected_shop)
     st.dataframe(
         res[["Артикул", "Заказ (уп)", "Всего шт", "Цена за штуку", "Цена товара"]].style.format({
             "Цена товара": "{:,.0f} ₸",

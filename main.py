@@ -221,7 +221,6 @@ if df_prices is None or df_prices.empty:
     st.stop()
 
 st.caption(f"✅ Прайс обновлен в {time.strftime('%H:%M')} | {len(df_prices)} SKU")
-st.subheader(f"🚚 Поставка: {selected_shop}")
 
 secret_key_name = WB_SHOP_TO_SECRET_KEY.get(selected_shop)
 api_key = None

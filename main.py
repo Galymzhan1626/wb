@@ -21,23 +21,15 @@ GSHEETS_SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
 
 # ---- Wildberries ----
 WB_SHOPS = [
-    "Тлеубаева", "Bonitas", "Мамутова", "Тастанов", "Bastau", "Шукурова",
-    "Диханбаев", "Diamond", "Хаким", "Fariza", "Aibar", "Байпакова",
-    "Абеденов", "Махамбетова", "Кыдырова", "Жораев",
+    "Диханбаев", "Diamond", "Хаким", "Fariza", "Абеденов", "Махамбетова", "Кыдырова", "Жораев",
 ]
 WB_SHOPS_WITHOUT_FF = [
-    "Диханбаев", "Хаким", "Diamond", "Шукурова", "Fariza", "Bonitas", "Мамутова", "Тлеубаева",
+    "Диханбаев", "Хаким", "Diamond", "Fariza", "Bonitas"
 ]
 WB_SHOP_TO_SECRET_KEY = {
     "Абеденов": "Абеденов",
-    "Bastau": "Bastau",
     "Диханбаев": "Диханбаев",
-    "Тлеубаева": "Тлеубаева",
     "Fariza": "Fariza",
-    "Шукурова": "Шукурова",
-    "Bonitas": "Bonitas",
-    "Мамутова": "Мамутова",
-    "Тастанов": "Тастанов",
     "Diamond": "Diamond",
     "Хаким": "Хаким",
     "Махамбетова": "Махамбетова",

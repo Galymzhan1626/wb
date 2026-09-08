@@ -21,7 +21,7 @@ GSHEETS_SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
 
 # ---- Wildberries ----
 WB_SHOPS = [
-    "Диханбаев", "Diamond", "Хаким", "Fariza", "Абеденов", "Махамбетова", "Кыдырова", "Жораев", "Pheonix"
+    "Диханбаев", "Diamond", "Хаким", "Fariza", "Абеденов", "Махамбетова", "Кыдырова", "Жораев", "Pheonix",
 ]
 WB_SHOPS_WITHOUT_FF = [
     "Диханбаев", "Хаким", "Diamond", "Fariza", "Bonitas"

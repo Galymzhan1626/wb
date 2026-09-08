@@ -279,6 +279,121 @@ def render_wb_tab():
 
 
 # =========================================================
+# WILDBERRIES — импорт "Лист подбора" из файла (без API)
+# =========================================================
+ 
+def wb_parse_picking_list(file) -> pd.DataFrame:
+    """
+    Парсит "Лист подбора" WB, выгружаемый из ЛК продавца (например,
+    WB-GI-274402158.xlsx).
+ 
+    Особенность файла: первые 4 строки — служебные ("Дата:", "Лист подбора
+    WB-GI-...", пустая строка, "Количество товаров: N"), реальная шапка
+    таблицы — в 5-й строке (header=4). Каждая строка таблицы = один товар
+    в одном задании на сборку ("№ задания"), поэтому количество заказанных
+    штук по артикулу = число строк с этим артикулом (считаем через
+    value_counts, как в API-варианте).
+    """
+    df_raw = pd.read_excel(file, header=4)
+ 
+    required_cols = {"Артикул продавца"}
+    missing = required_cols - set(df_raw.columns)
+    if missing:
+        raise ValueError(
+            f"В файле не найдены колонки: {', '.join(missing)}. "
+            "Проверьте, что это лист подбора WB (экспорт .xlsx из ЛК)."
+        )
+ 
+    df_raw = df_raw.dropna(subset=["Артикул продавца"])
+    df_raw["Артикул продавца"] = df_raw["Артикул продавца"].astype(str).str.strip()
+ 
+    summary = df_raw["Артикул продавца"].value_counts().reset_index()
+    summary.columns = ["Артикул", "Заказ (шт)"]
+    return summary
+ 
+ 
+def render_wb_tab():
+    col_main, col_refresh = st.columns([4, 1])
+    with col_main:
+        selected_shop = st.selectbox("🎯 Выберите магазин:", WB_SHOPS, key="wb_shop")
+    with col_refresh:
+        st.markdown("<div style='margin-top: 28px'>", unsafe_allow_html=True)
+        if st.button("🔄", help="Обновить прайс из Google Sheets", key="wb_refresh"):
+            st.cache_data.clear()
+            st.rerun()
+ 
+    current_ff_rate = 0 if selected_shop in WB_SHOPS_WITHOUT_FF else DEFAULT_FF_COST
+ 
+    with st.spinner("⏳ Синхронизация с Google Sheets..."):
+        df_prices, error = load_prices_from_gsheets(selected_shop)
+ 
+    if error:
+        st.error(f"❌ {error}")
+        return
+    if df_prices is None or df_prices.empty:
+        st.error("❌ Прайс не загружен — получен пустой результат из Google Sheets")
+        return
+ 
+    st.caption(f"✅ Прайс обновлен в {time.strftime('%H:%M')} | {len(df_prices)} SKU")
+ 
+    source = st.radio(
+        "Способ получения заказов:",
+        ["По номеру поставки (API)", "Из файла (Лист подбора)"],
+        horizontal=True,
+        key="wb_source",
+    )
+ 
+    summary_api = None
+ 
+    if source == "По номеру поставки (API)":
+        secret_key_name = WB_SHOP_TO_SECRET_KEY.get(selected_shop)
+        api_key = None
+        if secret_key_name:
+            raw_key = st.secrets.get("wb_api_keys", {}).get(secret_key_name)
+            if raw_key:
+                api_key = raw_key.strip()
+ 
+        if not api_key:
+            st.error(f"❌ Для магазина «{selected_shop}» не задан API-ключ WB в secrets (`wb_api_keys`).")
+            return
+ 
+        supply_id = st.text_input("Номер поставки WB", placeholder="Например: WB-GI-123456789", key="wb_supply_id")
+ 
+        if st.button("📥 Получить заказы по поставке", use_container_width=True, key="wb_fetch"):
+            if not supply_id.strip():
+                st.warning("⚠️ Введите номер поставки.")
+            else:
+                with st.spinner("Запрашиваем данные у Wildberries..."):
+                    summary_api, api_error = wb_get_supply_orders(supply_id, api_key)
+                if api_error:
+                    st.error(f"❌ {api_error}")
+                    summary_api = None
+ 
+    else:  # "Из файла (Лист подбора)"
+        picking_file = st.file_uploader(
+            "Загрузите лист подбора WB (.xlsx)", type=["xlsx"], key="wb_picking_list"
+        )
+        if picking_file:
+            try:
+                summary_api = wb_parse_picking_list(picking_file)
+            except Exception as e:
+                st.error(f"❌ Ошибка чтения файла: {e}")
+                summary_api = None
+            else:
+                st.success(f"✅ Найдено уникальных артикулов: {len(summary_api)}")
+ 
+    if summary_api is not None:
+        show_results(
+            summary_api, df_prices, selected_shop, current_ff_rate,
+            article_col="Артикул",
+            qty_per_pack_col="Количество в упаковке",
+            unit_cost_col="Цена за штуку",
+            qty_col_label="Заказ (уп)",
+            qty_unit_word="уп.",
+            show_ff_line=True,
+            metric_label="ИТОГО К ОПЛАТЕ",
+        )
+# =========================================================
 # KASPI.KZ (лист подбора — Excel, без API)
 # =========================================================
 

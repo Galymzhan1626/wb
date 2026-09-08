@@ -21,7 +21,7 @@ GSHEETS_SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
 
 # ---- Wildberries ----
 WB_SHOPS = [
-    "Диханбаев", "Diamond", "Хаким", "Fariza", "Абеденов", "Махамбетова", "Кыдырова", "Жораев",
+    "Диханбаев", "Diamond", "Хаким", "Fariza", "Абеденов", "Махамбетова", "Кыдырова", "Жораев", "Pheonix"
 ]
 WB_SHOPS_WITHOUT_FF = [
     "Диханбаев", "Хаким", "Diamond", "Fariza", "Bonitas"
@@ -35,6 +35,7 @@ WB_SHOP_TO_SECRET_KEY = {
     "Махамбетова": "Махамбетова",
     "Кыдырова": "Кыдырова",
     "Жораев": "Жораев",
+    "Pheonix": "Pheonix"
 }
 
 st.set_page_config(page_title="Калькулятор поставок", layout="centered", page_icon="📦")
